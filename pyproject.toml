@@ -1,0 +1,9 @@
+[project]
+name = "tautulli-recently-added"
+version = "0.1.0"
+description = "Python script to send a Discord webhook message for recently added Plex items using the Tautulli API."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "tautulli>4.0"
+]

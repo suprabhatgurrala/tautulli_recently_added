@@ -1,0 +1,6 @@
+{
+    "tautulli_url": "<tautulli_url_here>",
+    "tautulli_api_key": "<tautulli_api_key_here>",
+    "discord_webhook_url": "<discord_webhook_url_here>",
+    "last_run_timestamp": null
+}
