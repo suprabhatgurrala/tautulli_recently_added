@@ -141,11 +141,11 @@ def parse_tv_content(tv_data, api):
         for season in seasons_data.get("children_list", []):
             if season.get("media_type") != "season":
                 continue
-            season_titles.append(
-                f"{season.get("title")}, {season.get("children_count", 0)} episodes"
-            )
+
             season_metadata = api.get_metadata(season.get("rating_key"))
-            num_episodes += season_metadata.get("children_count", 0)
+            eps_in_season = season_metadata.get("children_count", 0)
+            num_episodes += eps_in_season
+            season_titles.append(f"{season.get("title")}, {eps_in_season} episodes")
             episodes_data = api.get_children_metadata(
                 season.get("rating_key"), media_type="season"
             )
