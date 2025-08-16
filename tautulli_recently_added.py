@@ -5,8 +5,21 @@ from datetime import UTC, datetime, timedelta
 import requests
 from tautulli import RawAPI
 
+MAX_ITEMS = 5
+MAX_LINES_PER_EMBED = 6
+IMG_FORMAT = "jpeg"
 
-def parse_movie_content(movie, api):
+
+def epoch_to_iso8601(epoch_s: str) -> str:
+    """Convert the seconds since epoch format provided by Tautulli to ISO 8601 format supported by Discord."""
+    utc_date = datetime.fromtimestamp(int(epoch_s)).astimezone(UTC)
+    utc_date.replace(
+        tzinfo=None
+    )  # convert to naive datetime for formatting, Discord assumes UTC
+    return utc_date.isoformat()
+
+
+def parse_movie_content(movie: dict, api: RawAPI):
     """Parse a Tautulli recently added movie object into a Discord embed.
 
     Args:
@@ -18,10 +31,9 @@ def parse_movie_content(movie, api):
                  Second element is a tuple containing the image filename, image bytes, and image format. Will be used in the post request to embed the image.
     """
     # Grab the first 5 directors, actors, and genres
-    max_items = 5
-    director_string = ", ".join(movie.get("directors")[0:max_items])
-    actors_string = ", ".join(movie.get("actors")[0:max_items])
-    genres_string = ", ".join(movie.get("genres")[0:max_items])
+    director_string = ", ".join(movie.get("directors")[0:MAX_ITEMS])
+    actors_string = ", ".join(movie.get("actors")[0:MAX_ITEMS])
+    genres_string = ", ".join(movie.get("genres")[0:MAX_ITEMS])
 
     # Parse the release date
     parsed_release_dt = datetime.strptime(
@@ -36,14 +48,12 @@ def parse_movie_content(movie, api):
     dur_str = f"{dur_hrs:.0f}h {dur_min:.0f}m"
 
     # Set the date added field to Discord's timestamp format
-    date_added = datetime.fromtimestamp(float(movie.get("added_at"))).astimezone(UTC)
-    date_added_str = date_added.replace(tzinfo=None).isoformat()
+    date_added_str = epoch_to_iso8601(movie.get("added_at"))
 
     # Get the image from the Plex server
     movie_img_path = movie.get("thumb")
-    img_format = "jpeg"
-    img_bytes = api.pms_image_proxy(img=movie_img_path, img_format=img_format)
-    img_filename = f"{movie.get('rating_key')}.{img_format}"
+    img_bytes = api.pms_image_proxy(img=movie_img_path, img_format=IMG_FORMAT)
+    img_filename = f"{movie.get('rating_key')}.{IMG_FORMAT}"
 
     embed = {
         "title": movie.get("full_title"),
@@ -60,46 +70,156 @@ def parse_movie_content(movie, api):
         "timestamp": date_added_str,
     }
 
-    image_tuple = (img_filename, img_bytes, f"image/{img_format}")
+    image_tuple = (img_filename, img_bytes, f"image/{IMG_FORMAT}")
 
     return embed, image_tuple
 
 
-def parse_tv_content(recently_added):
-    pass
-    # tv_webhook_obj = {"content": f"**New TV on {plex_server_name}**"}
-    # tv_embeds = []
+def parse_tv_content(tv_data, api):
+    """Parse a Tautulli recently added TV episode/show/season object into a Discord embed.
 
-    # for show in recently_added.get("show"):
-    #     season_info = ""
-    #     episode_info = ""
-    #     seasons = show.get("season_range")
-    #     seasons = seasons.replace("00", "01")
-    #     seasons = re.sub(r"0+([1-9]+)", r"\1", seasons)
-    #     if show.get("season_count") == 1:
-    #         season_info = show.get("season")[0]
-    #         if season_info.get("episode_count") == 1:
-    #             episode_info = season_info["episode"][0]
-    #             show_added = f"Season {season_info['media_index']} Episode {episode_info['media_index']}: '{episode_info['title']}'"
-    #     num_episodes = 0
-    #     for season_info in show.get("season"):
-    #         num_episodes += season_info.get("episode_count")
-    #     show_added = f"Season {seasons}, {num_episodes} episodes"
-    #     show_string = f"{show.get('title')} ({show.get('year')})"
+    Args:
+        tv_data (dict): The object from Tautulli.
+        api (RawAPI): The Tautulli API instance.
 
-    #     # image_url = base_img_url + show.get("thumb_url").split("/")[-1]
+    Returns:
+        2-tuple: First element is a dictionary representing the Discord embed,
+                 Second element is a tuple containing the image filename, image bytes, and image format. Will be used in the post request to embed the image.
+    """
+    if tv_data.get("media_type") == "episode":
+        show_rating_key = tv_data.get("grandparent_rating_key")
+        episode_number = tv_data.get("media_index")
+        season_title = tv_data.get("parent_title")
+        episodes_field = {
+            "name": "Episode",
+            "value": f"{season_title}, Episode {episode_number} - {tv_data.get('title')}",
+        }
+        if tv_data.get("originally_available_at"):
+            air_date_field = {
+                "name": "Air Date",
+                "value": datetime.fromisoformat(
+                    tv_data.get("originally_available_at")
+                ).strftime("%b %d, %Y"),
+            }
+        img_path = tv_data.get("parent_thumb")
+        num_episodes = 1
+    elif tv_data.get("media_type") == "season":
+        show_rating_key = tv_data.get("parent_rating_key")
+        episodes_data = api.get_children_metadata(
+            tv_data.get("rating_key"), media_type="season"
+        )
+        num_episodes = episodes_data.get("children_count", 0)
+        season_title = tv_data.get("title")
 
-    #     tv_embeds.append(
-    #         {
-    #             "title": show_string,
-    #             "description": show_added,
-    #             "image": {"url": image_url},
-    #         }
-    #     )
-    # tv_webhook_obj["embeds"] = tv_embeds
+        ep_names = []
+        latest_air_date = datetime.fromtimestamp(0)
+        for episode in episodes_data.get("children_list", []):
+            episode_title = episode.get("title")
+            ep_num = episode.get("media_index")
+            if episode_title.lower() == f"episode {ep_num}":
+                episode_title = ""
+            ep_names.append(f"{season_title}, Episode {ep_num} - {episode_title}")
+            air_date = datetime.fromisoformat(episode.get("originally_available_at"))
+            if air_date > latest_air_date:
+                latest_air_date = air_date
 
-    # # tv_response = requests.post(url, json=tv_webhook_obj)
-    # # tv_body = json.dumps(tv_webhook_obj, indent=4)
+        if num_episodes < MAX_LINES_PER_EMBED:
+            episodes_field = {
+                "name": "Episodes",
+                "value": "\n".join(ep_names[0:MAX_LINES_PER_EMBED]),
+            }
+        else:
+            episodes_field = {
+                "name": "Episode",
+                "value": f"{season_title}, {num_episodes} episodes",
+            }
+
+        air_date_field = {
+            "name": "Most Recent Episode Air Date",
+            "value": latest_air_date.strftime("%b %d, %Y"),
+        }
+        img_path = tv_data.get("thumb")
+    else:
+        show_rating_key = tv_data.get("rating_key")
+        seasons_data = api.get_children_metadata(
+            tv_data.get("rating_key"), media_type="show"
+        )
+        season_titles = []
+        num_episodes = 0
+        latest_air_date = datetime.min
+        for season in seasons_data.get("children_list", []):
+            season_titles.append(
+                f"{season.get("title")}, {season.get("children_count", 0)} episodes"
+            )
+            num_episodes += season.get("children_count", 0)
+            episodes_data = api.get_children_metadata(
+                season.get("rating_key"), media_type="season"
+            )
+            for episode in episodes_data.get("children_list", []):
+                air_date_str = episode.get("originally_available_at")
+                if air_date_str:
+                    air_date = datetime.fromisoformat(air_date_str)
+                    if air_date > latest_air_date:
+                        latest_air_date = air_date
+        if len(season_titles) < MAX_LINES_PER_EMBED:
+            episodes_field = {
+                "name": "Epsiodes",
+                "value": "\n".join(season_titles[0:MAX_LINES_PER_EMBED]),
+            }
+        else:
+            episodes_field = {
+                "name": "Episodes",
+                "value": f"{len(season_titles)} seasons, {num_episodes} episodes",
+            }
+        air_date_field = {
+            "name": "Most Recent Episode Air Date",
+            "value": latest_air_date.strftime("%b %d, %Y"),
+        }
+        img_path = tv_data.get("thumb")
+
+    show_data = api.get_metadata(show_rating_key)
+
+    fields = [
+        {
+            "name": "Year",
+            "value": show_data.get("year"),
+        },
+    ]
+
+    if episodes_field:
+        fields.append(episodes_field)
+    if air_date_field:
+        fields.append(air_date_field)
+    if show_data.get("actors"):
+        fields.append(
+            {
+                "name": "Starring",
+                "value": ", ".join(show_data.get("actors", [])[0:MAX_ITEMS]),
+            }
+        )
+    if show_data.get("genres"):
+        fields.append(
+            {
+                "name": "Genre",
+                "value": ", ".join(show_data.get("genres", [])[0:MAX_ITEMS]),
+            }
+        )
+
+    img_key = img_path.split("/")[-1]
+    image_filename = f"{img_key}.{IMG_FORMAT}"
+    img_bytes = api.pms_image_proxy(img=img_path, img_format=IMG_FORMAT)
+
+    embed = {
+        "title": show_data.get("title"),
+        "description": show_data.get("summary"),
+        "fields": fields,
+        "image": {"url": f"attachment://{image_filename}"},
+        "timestamp": epoch_to_iso8601(tv_data.get("updated_at")),
+    }
+
+    image_tuple = (image_filename, img_bytes, f"image/{IMG_FORMAT}")
+
+    return embed, image_tuple, num_episodes
 
 
 def main():
@@ -118,6 +238,10 @@ def main():
     movie_embeds = []
     movie_files = {}
 
+    tv_embeds = []
+    tv_files = {}
+    total_episodes = 0
+
     last_run_timestamp = config.get("last_run_timestamp", None)
     if last_run_timestamp:
         last_run_datetime = datetime.fromisoformat(last_run_timestamp)
@@ -132,6 +256,11 @@ def main():
             embed, img_tuple = parse_movie_content(item, api)
             movie_embeds.append(embed)
             movie_files[f"file{len(movie_files) + 1}"] = img_tuple
+        else:
+            embed, img_tuple, num_episodes = parse_tv_content(item, api)
+            tv_embeds.append(embed)
+            tv_files[f"file{len(tv_files) + 1}"] = img_tuple
+            total_episodes += num_episodes
 
     if len(movie_embeds) > 0:
         movie_webhook_obj = {}
@@ -151,6 +280,27 @@ def main():
         [
             print("key=", k, "value=", (v[0], v[1][0:10], v[2]))
             for k, v in movie_files.items()
+        ]
+
+    if len(tv_embeds) > 0:
+        tv_webhook_obj = {}
+        if total_episodes == 1:
+            tv_webhook_obj["content"] = f"1 new TV episode added to {plex_server_name}"
+        else:
+            tv_webhook_obj["content"] = (
+                f"{total_episodes} new TV episodes added to {plex_server_name}"
+            )
+        tv_webhook_obj["embeds"] = tv_embeds
+
+        requests.post(
+            config["discord_webhook_url"],
+            files=tv_files,
+            data={"payload_json": json.dumps(tv_webhook_obj)},
+        )
+        print(json.dumps(tv_webhook_obj, indent=4))
+        [
+            print("key=", k, "value=", (v[0], v[1][0:10], v[2]))
+            for k, v in tv_files.items()
         ]
 
 
