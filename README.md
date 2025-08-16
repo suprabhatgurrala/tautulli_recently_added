@@ -1,6 +1,10 @@
 # Tautulli Recently Added
 Python script to send a Discord webhook message for recently added Plex items using the Tautulli API.
 
+# Prereqs
+- a [Tautulli](https://tautulli.com/) instance
+- [uv Python package manager](https://docs.astral.sh/uv/)
+
 # Setup
 Copy `config_template.json` to `config.json` and fill in the configuration values.
 
@@ -11,7 +15,7 @@ Copy `config_template.json` to `config.json` and fill in the configuration value
 - `log_path` - optional, path to a log file. Logs will be appended to this file when running the script.
 - `last_run_timestamp` - optional, a ISO 8601 timestamp that serves as the cutoff for which items to include in the message. The script will automatically update this after a successful run to facilitate something like a cronjob deployment
 
-```
+```json
 {
     "tautulli_url": "<tautulli_url_here>",
     "tautulli_api_key": "<tautulli_api_key_here>",
@@ -24,5 +28,5 @@ Copy `config_template.json` to `config.json` and fill in the configuration value
     "last_run_timestamp": null
 }
 ```
-
+# Execution
 Run the script using `uv run tautulli_recently_added.py`
