@@ -1,22 +1,19 @@
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import requests
 from tautulli import RawAPI
 
+from utils import (
+    duration_to_str,
+    epoch_to_iso8601,
+    format_originally_available_date,
+)
+
 MAX_ITEMS = 5
 MAX_LINES_PER_EMBED = 6
 IMG_FORMAT = "jpeg"
-
-
-def epoch_to_iso8601(epoch_s: str) -> str:
-    """Convert the seconds since epoch format provided by Tautulli to ISO 8601 format supported by Discord."""
-    utc_date = datetime.fromtimestamp(int(epoch_s)).astimezone(UTC)
-    utc_date.replace(
-        tzinfo=None
-    )  # convert to naive datetime for formatting, Discord assumes UTC
-    return utc_date.isoformat()
 
 
 def parse_movie_content(movie: dict, api: RawAPI):
@@ -36,16 +33,10 @@ def parse_movie_content(movie: dict, api: RawAPI):
     genres_string = ", ".join(movie.get("genres")[0:MAX_ITEMS])
 
     # Parse the release date
-    parsed_release_dt = datetime.strptime(
-        movie.get("originally_available_at"), "%Y-%m-%d"
+    release_date_str = format_originally_available_date(
+        movie.get("originally_available_at")
     )
-    release_date_str = parsed_release_dt.strftime("%B %d, %Y")
-
-    # Calculate the duration in hours and minutes
-    dur = int(movie.get("duration")) / (1000 * 60)
-    dur_hrs = dur // 60
-    dur_min = dur % 60
-    dur_str = f"{dur_hrs:.0f}h {dur_min:.0f}m"
+    dur_str = duration_to_str(movie.get("duration"))
 
     # Set the date added field to Discord's timestamp format
     date_added_str = epoch_to_iso8601(movie.get("added_at"))
@@ -97,9 +88,9 @@ def parse_tv_content(tv_data, api):
         if tv_data.get("originally_available_at"):
             air_date_field = {
                 "name": "Air Date",
-                "value": datetime.fromisoformat(
+                "value": format_originally_available_date(
                     tv_data.get("originally_available_at")
-                ).strftime("%b %d, %Y"),
+                ),
             }
         img_path = tv_data.get("parent_thumb")
         num_episodes = 1
@@ -136,7 +127,7 @@ def parse_tv_content(tv_data, api):
 
         air_date_field = {
             "name": "Most Recent Episode Air Date",
-            "value": latest_air_date.strftime("%b %d, %Y"),
+            "value": format_originally_available_date(latest_air_date),
         }
         img_path = tv_data.get("thumb")
     else:
@@ -148,10 +139,13 @@ def parse_tv_content(tv_data, api):
         num_episodes = 0
         latest_air_date = datetime.min
         for season in seasons_data.get("children_list", []):
+            if season.get("media_type") != "season":
+                continue
             season_titles.append(
                 f"{season.get("title")}, {season.get("children_count", 0)} episodes"
             )
-            num_episodes += season.get("children_count", 0)
+            season_metadata = api.get_metadata(season.get("rating_key"))
+            num_episodes += season_metadata.get("children_count", 0)
             episodes_data = api.get_children_metadata(
                 season.get("rating_key"), media_type="season"
             )
@@ -173,7 +167,7 @@ def parse_tv_content(tv_data, api):
             }
         air_date_field = {
             "name": "Most Recent Episode Air Date",
-            "value": latest_air_date.strftime("%b %d, %Y"),
+            "value": format_originally_available_date(latest_air_date),
         }
         img_path = tv_data.get("thumb")
 
@@ -232,7 +226,12 @@ def main():
 
     api = RawAPI(base_url=config["tautulli_url"], api_key=config["tautulli_api_key"])
 
-    recently_added = api.get_recently_added(-1)
+    section_ids = []
+    for library in api.libraries:
+        if library["section_name"] in config["library_names"]:
+            section_ids.append(library["section_id"])
+
+    recently_added = api.get_recently_added(-1, media_type="show")
     plex_server_name = api.server_friendly_name
 
     movie_embeds = []
@@ -249,6 +248,8 @@ def main():
         last_run_datetime = datetime.now() - timedelta(days=1)
 
     for item in recently_added["recently_added"]:
+        if item["section_id"] not in section_ids:
+            continue
         added_at_datetime = datetime.fromtimestamp(int(item["added_at"]))
         if added_at_datetime < last_run_datetime:
             break
@@ -297,11 +298,16 @@ def main():
             files=tv_files,
             data={"payload_json": json.dumps(tv_webhook_obj)},
         )
+        # TODO: Only log this if request fails
         print(json.dumps(tv_webhook_obj, indent=4))
         [
             print("key=", k, "value=", (v[0], v[1][0:10], v[2]))
             for k, v in tv_files.items()
         ]
+
+    config["last_run_timestamp"] = datetime.now().isoformat()
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=4)
 
 
 if __name__ == "__main__":
