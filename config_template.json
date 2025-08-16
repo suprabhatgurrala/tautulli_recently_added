@@ -6,5 +6,6 @@
         "Movies",
         "TV Shows"
     ],
+    "log_path": "tautulli_recently_added.log",
     "last_run_timestamp": null
 }

@@ -1,19 +1,41 @@
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 
-import requests
 from tautulli import RawAPI
 
 from utils import (
     duration_to_str,
     epoch_to_iso8601,
     format_originally_available_date,
+    send_request_with_logging,
 )
 
 MAX_ITEMS = 5
 MAX_LINES_PER_EMBED = 6
 IMG_FORMAT = "jpeg"
+
+
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+with open(config_path, "r") as f:
+    config = json.load(f)
+
+# Setup logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+LOG_PATH = config.get("log_path")
+if LOG_PATH:
+    file_handler = logging.FileHandler(LOG_PATH, "a+")
+    file_handler.setLevel(logging.DEBUG)
+
+    formatter = logging.Formatter(
+        "{asctime} - {name} - {levelname} - {message}", style="{"
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
 
 def parse_movie_content(movie: dict, api: RawAPI):
@@ -217,13 +239,6 @@ def parse_tv_content(tv_data, api):
 
 
 def main():
-    config_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config.json"
-    )
-
-    with open(config_path, "r") as f:
-        config = json.load(f)
-
     api = RawAPI(base_url=config["tautulli_url"], api_key=config["tautulli_api_key"])
 
     section_ids = []
@@ -272,16 +287,12 @@ def main():
         )
         movie_webhook_obj["embeds"] = movie_embeds
 
-        requests.post(
-            config["discord_webhook_url"],
+        send_request_with_logging(
+            url=config["discord_webhook_url"],
             files=movie_files,
             data={"payload_json": json.dumps(movie_webhook_obj)},
+            logger=logger,
         )
-        print(json.dumps(movie_webhook_obj, indent=4))
-        [
-            print("key=", k, "value=", (v[0], v[1][0:10], v[2]))
-            for k, v in movie_files.items()
-        ]
 
     if len(tv_embeds) > 0:
         tv_webhook_obj = {}
@@ -293,22 +304,26 @@ def main():
             )
         tv_webhook_obj["embeds"] = tv_embeds
 
-        requests.post(
-            config["discord_webhook_url"],
+        send_request_with_logging(
+            url=config["discord_webhook_url"],
             files=tv_files,
             data={"payload_json": json.dumps(tv_webhook_obj)},
+            logger=logger,
         )
-        # TODO: Only log this if request fails
-        print(json.dumps(tv_webhook_obj, indent=4))
-        [
-            print("key=", k, "value=", (v[0], v[1][0:10], v[2]))
-            for k, v in tv_files.items()
-        ]
 
     config["last_run_timestamp"] = datetime.now().isoformat()
     with open(config_path, "w") as f:
         json.dump(config, f, indent=4)
+    logger.info(
+        "Script completed successfully. Sent %d movie embeds and %d TV embeds.",
+        len(movie_embeds),
+        len(tv_embeds),
+    )
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.error(e, exc_info=True)
+        raise

@@ -1,4 +1,7 @@
+import json
 from datetime import UTC, datetime
+
+import requests
 
 
 def format_ranges(numbers: list[int]) -> str:
@@ -72,7 +75,7 @@ def duration_to_str(duration: int) -> str:
     return dur_str
 
 
-def format_originally_available_date(date: [str, datetime]) -> str:
+def format_originally_available_date(date: list[str, datetime]) -> str:
     """Format the originally available date from Tautulli to a more readable format."""
     if date is None:
         return ""
@@ -82,3 +85,15 @@ def format_originally_available_date(date: [str, datetime]) -> str:
         parsed_release_dt = datetime.fromisoformat(date)
 
     return parsed_release_dt.strftime("%B %d, %Y")
+
+
+def send_request_with_logging(url, files, data, logger):
+    response = requests.post(url, files=files, data=data)
+    try:
+        response.raise_for_status()
+    except:
+        logger.debug("Webhook body: %s", json.dumps(data, indent=4))
+        logger.debug("Webhook files:")
+        for k, v in files.items():
+            logger.debug("key=%s, value=(%s, %s, %s)", k, v[0], v[1][0:10], v[2])
+        raise
