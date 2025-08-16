@@ -246,7 +246,7 @@ def main():
         if library["section_name"] in config["library_names"]:
             section_ids.append(library["section_id"])
 
-    recently_added = api.get_recently_added(-1, media_type="show")
+    recently_added = api.get_recently_added(-1)
     plex_server_name = api.server_friendly_name
 
     movie_embeds = []
