@@ -25,15 +25,16 @@ with open(config_path, "r") as f:
 # Setup logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter("{asctime} - {name} - {levelname} - {message}", style="{")
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(formatter)
+logger.addHandler(consoleHandler)
 
 LOG_PATH = config.get("log_path")
 if LOG_PATH:
     file_handler = logging.FileHandler(LOG_PATH, "a+")
     file_handler.setLevel(logging.DEBUG)
 
-    formatter = logging.Formatter(
-        "{asctime} - {name} - {levelname} - {message}", style="{"
-    )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
@@ -230,7 +231,7 @@ def parse_tv_content(tv_data, api):
         "description": show_data.get("summary"),
         "fields": fields,
         "image": {"url": f"attachment://{image_filename}"},
-        "timestamp": epoch_to_iso8601(tv_data.get("updated_at")),
+        "timestamp": epoch_to_iso8601(tv_data.get("added_at")),
     }
 
     image_tuple = (image_filename, img_bytes, f"image/{IMG_FORMAT}")
