@@ -13,3 +13,4 @@ wheels/
 
 config.json
 *.log
+*.sh
