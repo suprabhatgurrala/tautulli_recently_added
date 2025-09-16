@@ -1,7 +1,10 @@
 import json
+import logging
 from datetime import UTC, datetime
 
 import requests
+
+logger = logging.getLogger("tautulli_recently_added")
 
 
 def format_ranges(numbers: list[int]) -> str:
@@ -87,13 +90,15 @@ def format_originally_available_date(date: list[str, datetime]) -> str:
     return parsed_release_dt.strftime("%B %d, %Y")
 
 
-def send_request_with_logging(url, files, data, logger):
+def send_request_with_logging(url, files, data):
     response = requests.post(url, files=files, data=data)
     try:
         response.raise_for_status()
     except:
-        logger.debug("Webhook body: %s", json.dumps(data, indent=4))
-        logger.debug("Webhook files:")
+        logger.exception(
+            "Webhook body: %s", json.dumps(data.get("payload_json"), indent=4)
+        )
+        logger.exception("Webhook files:")
         for k, v in files.items():
-            logger.debug("key=%s, value=(%s, %s, %s)", k, v[0], v[1][0:10], v[2])
+            logger.exception("key=%s, value=(%s, %s, %s)", k, v[0], v[1][0:10], v[2])
         raise

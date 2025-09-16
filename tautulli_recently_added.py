@@ -23,11 +23,12 @@ with open(config_path, "r") as f:
     config = json.load(f)
 
 # Setup logger
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("tautulli_recently_added")
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter("{asctime} - {name} - {levelname} - {message}", style="{")
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(formatter)
+consoleHandler.setLevel(logging.DEBUG)
 logger.addHandler(consoleHandler)
 
 LOG_PATH = config.get("log_path")
@@ -102,6 +103,9 @@ def parse_tv_content(tv_data, api):
     """
     air_date_field = {}
     episodes_field = {}
+    image_path = None
+    image_tuple = None
+    num_episodes = 0
     if tv_data.get("media_type") == "episode":
         show_rating_key = tv_data.get("grandparent_rating_key")
         episode_number = tv_data.get("media_index")
@@ -117,7 +121,7 @@ def parse_tv_content(tv_data, api):
                     tv_data.get("originally_available_at")
                 ),
             }
-        img_path = tv_data.get("parent_thumb")
+        image_path = tv_data.get("parent_thumb")
         num_episodes = 1
     elif tv_data.get("media_type") == "season":
         show_rating_key = tv_data.get("parent_rating_key")
@@ -154,7 +158,7 @@ def parse_tv_content(tv_data, api):
             "name": "Most Recent Episode Air Date",
             "value": format_originally_available_date(latest_air_date),
         }
-        img_path = tv_data.get("thumb")
+        image_path = tv_data.get("thumb")
     else:
         show_rating_key = tv_data.get("rating_key")
         seasons_data = api.get_children_metadata(
@@ -194,7 +198,7 @@ def parse_tv_content(tv_data, api):
             "name": "Most Recent Episode Air Date",
             "value": format_originally_available_date(latest_air_date),
         }
-        img_path = tv_data.get("thumb")
+        image_path = tv_data.get("thumb")
 
     show_data = api.get_metadata(show_rating_key)
 
@@ -224,19 +228,27 @@ def parse_tv_content(tv_data, api):
             }
         )
 
-    img_key = img_path.split("/")[-1]
-    image_filename = f"{img_key}.{IMG_FORMAT}"
-    img_bytes = api.pms_image_proxy(img=img_path, img_format=IMG_FORMAT)
+    embed = {}
+    show_title = show_data.get("title")
+    show_description = show_data.get("summary")
 
-    embed = {
-        "title": show_data.get("title"),
-        "description": show_data.get("summary"),
-        "fields": fields,
-        "image": {"url": f"attachment://{image_filename}"},
-        "timestamp": epoch_to_iso8601(tv_data.get("added_at")),
-    }
+    if show_title and show_description:
+        embed["title"] = show_title
+        embed["description"] = show_description
+    else:
+        # Title and description are required fields, return empty embed if we don't have both
+        return embed, image_tuple, num_episodes
 
-    image_tuple = (image_filename, img_bytes, f"image/{IMG_FORMAT}")
+    if fields:
+        embed["fields"] = fields
+    if tv_data.get("added_at"):
+        embed["timestamp"] = epoch_to_iso8601(tv_data.get("added_at"))
+    if image_path:
+        image_key = image_path.split("/")[-1]
+        image_filename = f"{image_key}.{IMG_FORMAT}"
+        image_bytes = api.pms_image_proxy(img=image_path, img_format=IMG_FORMAT)
+        image_tuple = (image_filename, image_bytes, f"image/{IMG_FORMAT}")
+        embed["image"] = {"url": f"attachment://{image_filename}"}
 
     return embed, image_tuple, num_episodes
 
@@ -294,7 +306,6 @@ def main():
             url=config["discord_webhook_url"],
             files=movie_files,
             data={"payload_json": json.dumps(movie_webhook_obj)},
-            logger=logger,
         )
 
     if len(tv_embeds) > 0:
@@ -311,7 +322,6 @@ def main():
             url=config["discord_webhook_url"],
             files=tv_files,
             data={"payload_json": json.dumps(tv_webhook_obj)},
-            logger=logger,
         )
 
     config["last_run_timestamp"] = datetime.now().isoformat()
