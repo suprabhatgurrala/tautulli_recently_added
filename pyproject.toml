@@ -8,3 +8,8 @@ dependencies = [
     "tautulli>4.0",
     "requests"
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=4.3.0",
+]
