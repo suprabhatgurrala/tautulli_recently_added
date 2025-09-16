@@ -100,6 +100,8 @@ def parse_tv_content(tv_data, api):
         2-tuple: First element is a dictionary representing the Discord embed,
                  Second element is a tuple containing the image filename, image bytes, and image format. Will be used in the post request to embed the image.
     """
+    air_date_field = {}
+    episodes_field = {}
     if tv_data.get("media_type") == "episode":
         show_rating_key = tv_data.get("grandparent_rating_key")
         episode_number = tv_data.get("media_index")
